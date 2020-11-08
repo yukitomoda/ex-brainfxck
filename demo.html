@@ -1,0 +1,366 @@
+<!DOCTYPE html>
+<html ng-app="app">
+
+<head>
+  <meta charset="utf-8">
+  <title>Brainfuck Demo</title>
+  <style>
+    .current-command {
+      background-color: paleturquoise;
+    }
+
+    .current-register {
+      background-color: paleturquoise;
+    }
+
+    .empty-register {
+      background-color: lightgray;
+    }
+
+    .register-col {
+      width: 75px;
+    }
+
+    .register-header-col {
+      width: 30px;
+    }
+
+    .register-row-even {
+      background-color: aliceblue;
+    }
+
+    .register-view-table {
+      border-collapse: collapse;
+    }
+
+    .register-view-table td,
+    .register-view-table th {
+      border: 1px solid darkgray;
+    }
+  </style>
+</head>
+
+<body ng-cloak>
+  <!-- body -->
+
+  <main></main>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/angular.js/1.7.2/angular.js"></script>
+  <script src="bf.js"></script>
+
+  <script type="text/ng-template" id="main.html">
+    <div>
+      <div>
+        <input type="checkbox" ng-model="$ctrl.brainfuckOnly" id="options-brainfuck-only">
+        <label for="options-brainfuck-only">Brainfuckトークンのみを読み込む</label>
+      </div>
+      <div>
+        <input type="checkbox" ng-model="$ctrl.joinCommands" id="options-join-commands">
+        <label for="options-join-commands">回数指定可能コマンドの結合</label>
+      </div>
+      <textarea rows="15" cols="80" ng-model="$ctrl.source"></textarea>
+      <div>
+        <button ng-click="$ctrl.parse()">parse</button>
+      </div>
+    </div>
+    <interpreter></interpreter>
+  </script>
+
+  <script type="text/ng-template" id="interpreter.html">
+    <div ng-show="$ctrl.interpreter">
+      <div>
+        <input type="text" ng-model="$ctrl.stepCount">
+        <button ng-click="$ctrl.step($ctrl.stepCount)">step</button>
+        <button ng-disabled="$ctrl.interval" ng-click="$ctrl.start($ctrl.stepCount)">start</button>
+        <button ng-disabled="!$ctrl.interval" ng-click="$ctrl.stop()">stop</button>
+      </div>
+      <div>{{$ctrl.stepsExecuted}} steps executed</div>
+      <div>count: {{$ctrl.interpreter.counter != null ? $ctrl.interpreter.counter : 'UNSET'}}</div>
+      <div>state: {{$ctrl.interpreter.state}}</div>
+      <div>
+        <button ng-click="$ctrl.init()">init</button>
+      </div>
+      <div>
+        <h3>input</h3>
+        <div>
+          <input id="interpreter-options-input-by-json" type="checkbox" ng-model="$ctrl.inputByJson">
+          <label for="interpreter-options-input-by-json">JSONで読込</label>
+        </div>
+        <input type="text" ng-model="inputText">
+        <button ng-click="$ctrl.pushInput(inputText)">push</button>
+        <div>
+          <span ng-repeat="input in $ctrl.interpreter.input track by $index">[{{input}}]</span>
+        </div>
+      </div>
+      <div>
+        <h3>output</h3>
+        <pre>{{$ctrl.interpreter.output}}</pre>
+      </div>
+      <div>
+        <h3>commands</h3>
+        <commands-view commands="$ctrl.interpreter.commands" cursor="$ctrl.interpreter.cursorRegister.getValue()"></commands-view>
+      </div>
+      <div>
+        <h3>arrayField</h3>
+        <field-view field="$ctrl.interpreter.arrayField"></field-view>
+      </div>
+      <div>
+        <h3>charField</h3>
+        <field-view field="$ctrl.interpreter.charField"></field-view>
+      </div>
+      <div>
+        <h3>returnField</h3>
+        <field-view field="$ctrl.interpreter.returnField"></field-view>
+      </div>
+    </div>
+  </script>
+
+  <script type="text/ng-template" id="commands-view.html">
+    <code>
+      <span ng-repeat="command in $ctrl.commands" ng-switch="command.type" ng-class="{'current-command': $index == $ctrl.cursor}">
+        <span ng-switch-when="charField">{{command.char}}</span>
+        <span ng-switch-when="inc">+</span>
+        <span ng-switch-when="dec">-</span>
+        <span ng-switch-when="readCnt">=</span>
+        <span ng-switch-when="writeCnt">?</span>
+        <span ng-switch-when="readChar">,</span>
+        <span ng-switch-when="putChar">.</span>
+        <span ng-switch-when="cnt">{{command.value}}</span>
+        <span ng-switch-when="loopStart">[</span>
+        <span ng-switch-when="loopEnd">]</span>
+        <span ng-switch-when="oneRegister">|</span>
+        <span ng-switch-when="zeroRegister">_</span>
+        <span ng-switch-when="arrayField">#</span>
+        <span ng-switch-when="arrayFieldPointer">*</span>
+        <span ng-switch-when="returnField">@</span>
+        <span ng-switch-when="returnFieldPointer">$</span>
+        <span ng-switch-when="cursorRegister">&</span>
+        <span ng-switch-when="incPtr">&gt;</span>
+        <span ng-switch-when="decPtr">&lt;</span>
+      </span>
+    </code>
+  </script>
+
+  <script type="text/ng-template" id="field-view.html">
+    <table class="register-view-table" ng-init="cols = 10">
+      <tr>
+        <th class="register-header-col"></th>
+        <th class="register-col" ng-repeat="i in 0 | range:cols">{{i}}</th>
+      </tr>
+      <tr ng-repeat="row in 0 | range:$ctrl.field.registers.length / cols" ng-class-even="'register-row-even'">
+        <th class="register-header-col">{{row}}</th>
+        <td class="register-col register-cell" ng-init="index = row * cols + i" ng-repeat="i in 0 | range:cols track by $index" ng-class="{'current-register': index == $ctrl.field.pointerRegister.getValue(), 'empty-register': $ctrl.field.registers[index] == null}">
+          <span ng-if="$ctrl.field.registers[index]">{{$ctrl.field.registers[index].getValue()}}</span>
+          <span ng-if="!$ctrl.field.registers[index]">-</span>
+        </td>
+      </tr>
+    </table>
+  </script>
+
+  <script>
+  </script>
+
+  <script>
+    'use strict';
+
+    (function () {
+      const module = angular.module('app', []);
+
+      module.constant('initialCode', `_[ Brainfuck 独自拡張マシマシ Interpreter
+
+  parse -> start で実行
+
+  -- 設定 --
+  S: 設定値スケール（100ならば、1の時0.01を表す）
+  W: 幅（回）
+  H: 高さ（回）
+  X: C_0_re
+  Y: C_0_im
+  D: C_i+1_re - C_i_re
+  E: C_i+1_im - C_i_im
+  N: 発散判定の試行回数
+  L: 行のセパレータ文字
+  C: 発散しなかった箇所の文字
+  B: 出力する文字のASCIIコードの最低値
+]
+
+1000S=
+125W=
+60H=
+0X= 2 000-
+0Y= 1 200-
+24D=
+40E=
+20N=
+10L=
+32C=
+65B=
+
+100S?T=
+4S??I=
+
+Y?y=
+H?h=
+[
+    X?x=
+    W?w=
+    [
+        0a=
+        0b=
+        N?i=[
+            
+            S?x?c= a??c+ b??c-
+            S?y?d= 2a?b?d+
+
+            0s=
+            0t= c?t- [2t?- s= _] 2t?- t?c=
+            0a= c[100a+ T?c-] 0t= c?t- [T?c+ 100a-_]
+            c[a+ S?c-] 0t= c?t- [a-_]
+            s[2a?-_]
+
+            0s=
+            0t= d?t- [2t?- s= _] 2t?- t?d=
+            0b= d[100b+ T?d-] 0t= d?t- [T?d+ 100b-_]
+            d[b+ S?d-] 0t= d?t- [b-_]
+            s[2b?-_]
+
+            a??r= b??r+
+            I?t=r?t-2[_2]
+
+            i-
+        ]
+
+        r=i[0r= B?i+ . _]r[C. _]
+
+        D?x+ w-
+    ]
+
+    L.
+    0w= X?x=
+    E?y+ h-
+]`);
+
+      module.component('main', {
+        templateUrl: 'main.html',
+        controller: ['$scope', 'initialCode', function ($scope, initialCode) {
+          const $ctrl = this;
+
+          $ctrl.source = initialCode;
+
+          $ctrl.parse = function () {
+            if (!$ctrl.source) return;
+
+            let source = $ctrl.source;
+            if ($ctrl.brainfuckOnly) {
+              source = source.match(/[+\-\[\].,<>]+/g).join('');
+            }
+            if ($ctrl.joinCommands) {
+              source = source.replace(/(\++|-+|<+|>+)/g, function(match) {
+                if (2 < match.length) return match.length + match[0];
+                return match;
+              });
+            }
+            $ctrl.interpreter = new Brainfuck.Interpreter(source);
+            $scope.$broadcast('interpreter-created', $ctrl.interpreter);
+            $ctrl.interpreter.parseToEnd();
+          };
+        }]
+      });
+
+      module.component('interpreter', {
+        templateUrl: 'interpreter.html',
+        controller: ['$scope', '$interval', function ($scope, $interval) {
+          const $ctrl = this;
+
+          $ctrl.interpreter = null;
+          $ctrl.stepsExecuted = 0;
+          $ctrl.stepCount = 1;
+
+          function isStateToStop(state) {
+            return state === Brainfuck.Interpreter.states.Finished
+              || state === Brainfuck.Interpreter.states.WaitForInput;
+          }
+
+          $scope.$on('interpreter-created', function(event, interpreter) {
+            $ctrl.interpreter = interpreter;
+            $ctrl.stepsExecuted = 0;
+          });
+
+          $ctrl.init = function() {
+            $ctrl.interpreter.init();
+            $ctrl.stepsExecuted = 0;
+          };
+
+          $ctrl.step = function (count) {
+            if ($ctrl.interpreter.isFinished()) return;
+            for (let i = 0; i < count; i++) {
+              $ctrl.interpreter.step();
+              $ctrl.stepsExecuted++;
+              if (isStateToStop($ctrl.interpreter.state)) return;
+            }
+          };
+
+          $ctrl.start = function (count) {
+            $ctrl.interval = $interval(function() {
+              $ctrl.step(count);
+              if (isStateToStop($ctrl.interpreter.state)) $ctrl.stop();
+            }, 100);
+          };
+
+          $ctrl.stop = function() {
+            if ($ctrl.interval) {
+              $interval.cancel($ctrl.interval);
+              $ctrl.interval = null;
+            }
+          };
+
+          $ctrl.pushInput = function (text) {
+            if ($ctrl.inputByJson) {
+              const input = JSON.parse(text);
+              if (input instanceof Array) {
+                for(let i = 0; i < input.length; i++) {
+                  if (typeof input[i] != 'number') return;
+                }
+                $ctrl.interpreter.input = $ctrl.interpreter.input.concat(input);
+              } if (typeof input === 'number') {
+                $ctrl.interpreter.input.push(input);
+              }
+            } else {
+              for(let i = 0; i < text.length; i++) {
+                $ctrl.interpreter.input.push(text.codePointAt(i));
+              }
+            }
+          }
+        }]
+      });
+
+      module.component('commandsView', {
+        templateUrl: 'commands-view.html',
+        bindings: {
+          commands: '<',
+          cursor: '<'
+        }
+      });
+
+      module.component('fieldView', {
+        templateUrl: 'field-view.html',
+        bindings: {
+          field: '<'
+        }
+      });
+
+      module.filter('range', function() {
+        return function(start, count) {
+          const result = [];
+          const end = start + count;
+          for(let i = start; i < end; i++) {
+            result.push(i);
+          }
+          return result;
+        };
+      })
+    })();
+
+  </script>
+</body>
+</html>
